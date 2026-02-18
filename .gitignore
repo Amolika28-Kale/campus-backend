@@ -1,0 +1,12 @@
+# .gitignore फाइल replace करा
+node_modules/
+.env
+.env.local
+.env.production
+uploads/
+.DS_Store
+dist/
+build/
+*.log
+npm-debug.log*
+package-lock.json
