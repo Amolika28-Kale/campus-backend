@@ -9,7 +9,10 @@ let io;
 export const initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:5173',
+      origin: [
+        process.env.CLIENT_URL || 'http://localhost:5173',
+        'https://campus-connectss.netlify.app'
+      ],
       credentials: true,
       methods: ["GET", "POST"]
     },

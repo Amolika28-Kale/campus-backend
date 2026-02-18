@@ -1,7 +1,17 @@
+# .gitignore फाइल replace करा
 echo "node_modules/
 .env
+.env.local
+.env.production
+uploads/
 .DS_Store
 dist/
 build/
 *.log
-uploads/" 
+npm-debug.log*
+package-lock.json" > .gitignore
+
+# .gitignore add आणि commit करा
+git add .gitignore
+git commit -m "Update .gitignore to exclude sensitive files"
+git push origin main
