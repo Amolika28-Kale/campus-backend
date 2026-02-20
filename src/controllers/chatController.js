@@ -1,4 +1,4 @@
-// controllers/chatController.js - Complete with deleteMessage
+// controllers/chatController.js - Complete Updated Version
 import Message from "../models/Message.js";
 import Match from "../models/Match.js";
 
@@ -32,21 +32,26 @@ export const sendMessage = async (req, res) => {
   }
 };
 
-// ✅ Get Messages
+// ✅ Get Messages (Filter out deleted ones)
 export const getMessages = async (req, res) => {
   try {
     const { matchId } = req.params;
+    const userId = req.user._id;
 
     const match = await Match.findById(matchId);
     if (!match)
       return res.status(404).json({ message: "Match not found" });
 
-    if (!match.users.some(id => id.toString() === req.user._id.toString()))
+    if (!match.users.some(id => id.toString() === userId.toString()))
       return res.status(403).json({ message: "Not allowed" });
 
-    const messages = await Message.find({ matchId })
-      .sort({ createdAt: 1 });
+    // Get messages where current user is NOT in deletedBy array
+    const messages = await Message.find({ 
+      matchId,
+      deletedBy: { $ne: userId } // Exclude messages deleted by this user
+    }).sort({ createdAt: 1 });
 
+    console.log(`📥 Found ${messages.length} messages for user ${userId}`);
     res.json(messages);
 
   } catch (error) {
@@ -80,13 +85,30 @@ export const markAsSeen = async (req, res) => {
   }
 };
 
-// ✅ Delete Message (FIXED VERSION)
+// ✅ Delete Message
 export const deleteMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
     const { forEveryone } = req.query;
+    const userId = req.user._id;
     
     console.log("🗑️ Deleting message:", messageId, "forEveryone:", forEveryone);
+
+    // Check if it's a temp ID (from frontend)
+    if (messageId.startsWith('temp-')) {
+      return res.status(400).json({ 
+        message: "Cannot delete temporary message",
+        error: "TEMP_ID_NOT_ALLOWED"
+      });
+    }
+
+    // Validate if it's a valid MongoDB ObjectId
+    if (!messageId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        message: "Invalid message ID format",
+        error: "INVALID_ID_FORMAT"
+      });
+    }
     
     const message = await Message.findById(messageId);
     
@@ -95,15 +117,15 @@ export const deleteMessage = async (req, res) => {
     }
     
     // Check if user is the sender
-    if (message.sender.toString() !== req.user._id.toString()) {
+    if (message.sender.toString() !== userId.toString()) {
       return res.status(403).json({ message: "Not authorized to delete this message" });
     }
     
     if (forEveryone === 'true') {
-      // Delete for everyone
+      // Delete for everyone - completely remove message
       await Message.findByIdAndDelete(messageId);
       
-      // Emit socket event for real-time update
+      // Emit socket event
       try {
         const io = req.app.get('io');
         if (io) {
@@ -118,47 +140,77 @@ export const deleteMessage = async (req, res) => {
       
       res.json({ message: "Message deleted for everyone" });
     } else {
-      // Delete for me only - we'll just delete it for now
-      // In a real app, you might want to add a "deletedFor" array
-      await Message.findByIdAndDelete(messageId);
+      // Delete for me only - add to deletedBy array
+      await Message.findByIdAndUpdate(
+        messageId,
+        { $addToSet: { deletedBy: userId } } // Add user to deletedBy if not already there
+      );
       
-      res.json({ message: "Message deleted" });
+      res.json({ message: "Message deleted for you" });
     }
     
   } catch (error) {
-    console.error("Delete Message Error:", error);
+    console.error("❌ Delete Message Error:", error);
+    
+    if (error.name === 'CastError') {
+      return res.status(400).json({ 
+        message: "Invalid message ID format",
+        error: error.message 
+      });
+    }
+    
     res.status(500).json({ message: "Server Error" });
   }
 };
 
-// ✅ Clear Chat
+// ✅ Clear Chat (Only for current user)
 export const clearChat = async (req, res) => {
   try {
     const { matchId } = req.params;
+    const userId = req.user._id;
     
+    console.log(`🗑️ User ${userId} clearing chat for match: ${matchId}`);
+
     const match = await Match.findById(matchId);
     if (!match) {
       return res.status(404).json({ message: "Match not found" });
     }
     
-    if (!match.users.some(id => id.toString() === req.user._id.toString())) {
+    // Check if user belongs to this match
+    if (!match.users.some(id => id.toString() === userId.toString())) {
       return res.status(403).json({ message: "Not allowed" });
     }
+
+    // Add current user to deletedBy array for ALL messages in this match
+    const result = await Message.updateMany(
+      { matchId },
+      { $addToSet: { deletedBy: userId } } // Add user to deletedBy for every message
+    );
     
-    // Delete all messages in this match
-    await Message.deleteMany({ matchId });
-    
-    // Emit socket event
+    console.log(`✅ Cleared ${result.modifiedCount} messages for user ${userId}`);
+
+    // Emit socket event to notify other user
     try {
       const io = req.app.get('io');
       if (io) {
-        io.to(`match:${matchId}`).emit('chat-cleared', { matchId });
+        // Notify other user in the match
+        const otherUser = match.users.find(id => id.toString() !== userId.toString());
+        if (otherUser) {
+          io.to(`user:${otherUser}`).emit('user-cleared-chat', { 
+            matchId,
+            userId 
+          });
+        }
       }
     } catch (socketErr) {
       console.log("Socket emission failed:", socketErr);
     }
     
-    res.json({ message: "Chat cleared successfully" });
+    res.json({ 
+      message: "Chat cleared successfully",
+      clearedFor: userId,
+      clearedCount: result.modifiedCount
+    });
     
   } catch (error) {
     console.error("Clear Chat Error:", error);

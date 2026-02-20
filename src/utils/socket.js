@@ -10,13 +10,14 @@ export const initializeSocket = (server) => {
   io = new Server(server, {
     cors: {
       origin: [
-        process.env.CLIENT_URL || 'http://localhost:5173',"http://localhost:5174",
+        process.env.CLIENT_URL || 'http://localhost:5173',
+        "http://localhost:5174",
         'https://campus-connectss.netlify.app'
       ],
       credentials: true,
       methods: ["GET", "POST"]
     },
-    transports: ['websocket', 'polling'], // polling fallback
+    transports: ['websocket', 'polling'],
     pingTimeout: 60000,
     pingInterval: 25000,
     allowEIO3: true
@@ -63,35 +64,51 @@ export const initializeSocket = (server) => {
       });
     });
 
-// utils/socket.js - Add tempId handling
-socket.on('send-message', async (data) => {
-  try {
-    console.log('🎯 Received message on backend:', data);
-    
-    const { matchId, content, tempId } = data; // tempId घ्या
-    
-    // Save to database
-    const message = await Message.create({
-      matchId,
-      sender: socket.userId,
-      content
+    // Send message
+    socket.on('send-message', async (data) => {
+      try {
+        console.log('🎯 Received message on backend:', data);
+        
+        const { matchId, content, tempId } = data;
+        
+        // Save to database
+        const message = await Message.create({
+          matchId,
+          sender: socket.userId,
+          content
+        });
+
+        console.log('✅ Message saved to DB. ID:', message._id);
+
+        // Populate sender details
+        await message.populate('sender', 'fullName profileImage');
+
+        // Broadcast with tempId so frontend can match
+        io.to(`match:${matchId}`).emit('new-message', {
+          ...message.toObject(),
+          tempId: tempId
+        });
+        
+      } catch (error) {
+        console.error('❌ Socket message error:', error);
+      }
     });
 
-    console.log('✅ Message saved to DB. ID:', message._id);
-
-    // Populate sender details
-    await message.populate('sender', 'fullName profileImage');
-
-    // Broadcast with tempId so frontend can match
-    io.to(`match:${matchId}`).emit('new-message', {
-      ...message.toObject(),
-      tempId: tempId // Send back tempId
+    // Delete message
+    socket.on('delete-message', ({ messageId, matchId, forEveryone }) => {
+      io.to(`match:${matchId}`).emit('message-deleted', {
+        messageId,
+        forEveryone
+      });
     });
-    
-  } catch (error) {
-    console.error('❌ Socket message error:', error);
-  }
-});
+
+    // Clear chat
+    socket.on('clear-chat', ({ matchId }) => {
+      socket.to(`match:${matchId}`).emit('user-cleared-chat', {
+        userId: socket.userId,
+        matchId
+      });
+    });
 
     // Typing indicator
     socket.on('typing', ({ matchId, isTyping }) => {

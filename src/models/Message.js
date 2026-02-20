@@ -1,4 +1,4 @@
-// models/Message.js - Ensure this is correct
+// models/Message.js - Updated with deletedBy array
 import mongoose from "mongoose";
 
 const messageSchema = new mongoose.Schema(
@@ -21,7 +21,12 @@ const messageSchema = new mongoose.Schema(
     seen: {
       type: Boolean,
       default: false
-    }
+    },
+    // ✅ NEW: Track which users have deleted this message
+    deletedBy: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User"
+    }]
   },
   { timestamps: true }
 );
