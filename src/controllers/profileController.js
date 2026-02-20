@@ -7,17 +7,27 @@ import path from "path";
 import fs from "fs";
 
 // ✅ Get My Profile
+// controllers/profileController.js - Update getMyProfile
 export const getMyProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
       .populate("college", "name")
-      .select("-password");
+      .select("-password"); // Remove only password, keep all other fields
     
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json(user);
+    // Format image URLs
+    const userObj = user.toObject();
+    if (userObj.profileImage) {
+      userObj.profileImage = userObj.profileImage.replace(/\\/g, '/');
+    }
+    if (userObj.collegeIdImage) {
+      userObj.collegeIdImage = userObj.collegeIdImage.replace(/\\/g, '/');
+    }
+
+    res.json(userObj);
   } catch (error) {
     console.error("Get Profile Error:", error);
     res.status(500).json({ message: "Server Error" });
